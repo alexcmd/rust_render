@@ -1,11 +1,17 @@
+use std::os::macos::raw::stat;
 use wgpu::StoreOp;
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
 };
 use wgpu::util::DeviceExt;
+use wgpu::WindowHandle;
+use winit::application::ApplicationHandler;
+use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent::KeyboardInput;
-use winit::window::Window;
+use winit::event_loop::ActiveEventLoop;
+use winit::window;
+use winit::window::{Window, WindowId};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -31,8 +37,7 @@ struct State<'window> {
 }
 
 impl<'window> State<'window> {
-    async fn new(window: &'window Window) -> Self {
-
+    async fn new(window: Window) -> Self {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -40,7 +45,7 @@ impl<'window> State<'window> {
             dx12_shader_compiler: Default::default(),
             gles_minor_version: Default::default(),
         });
-        let surface = unsafe { instance.create_surface(&window) }.unwrap();
+        let surface = unsafe { instance.create_surface(window) }.unwrap();
         let adapter = instance.request_adapter(
             &wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -207,32 +212,61 @@ impl<'window> State<'window> {
     }
 }
 
-#[tokio::main]
-async fn main() {
-    env_logger::init();
-    let event_loop = EventLoop::new();
-    let window: Window = Window::new(&event_loop).unwrap();
+struct App<'window> {
+    state: State<'window>,
+}
+impl App<'_> {
+    async fn new(event_loop: &EventLoop<()>) -> Self {
+        let window: Window = event_loop.create_window(Window::default_attributes()).unwrap();
+        let state = State::new(window).await;
+        return App {
+            state,
+        };
+    }
+}
 
-    let mut state = State::new(&window).await;
+impl ApplicationHandler for App<'_> {
+    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {
+        // TODO
+    }
 
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::WindowEvent {
-            ref event,
-            window_id,
-        } if window_id == window.id() => match event {
-            WindowEvent::CloseRequested | KeyboardInput {..} => *control_flow =  ControlFlow::Wait,
-            WindowEvent::Resized(physical_size) => {state.resize(*physical_size);}
-            WindowEvent::ScaleFactorChanged { scale_factor, ..} => {state.resize(**scale_factor);}
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => {
+                println!("The close button was pressed; stopping");
+                event_loop.exit();
+            }
             WindowEvent::RedrawRequested => {
-                match state.render() {
+                // Redraw the application.
+                //
+                // It's preferable for applications that do not render continuously to render in
+                // this event rather than in AboutToWait, since rendering in here allows
+                // the program to gracefully handle redraws requested by the OS.
+
+                // Draw.
+
+                // Queue a RedrawRequested event.
+                //
+                // You only need to call this if you've determined that you need to redraw in
+                // applications which do not always need to. Applications that redraw continuously
+                // can render here instead.
+                // self.window.as_ref().unwrap().request_redraw();
+                match self.state.render() {
                     Ok(_) => {}
-                    Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
-                    Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Wait,
+                    Err(wgpu::SurfaceError::Lost) => self.state.resize(self.state.size),
                     Err(e) => eprintln!("{:?}", e),
                 }
             }
-            _ => {}
-        },
-        _ => {}
-    });
+            _ => (),
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    env_logger::init();
+
+    let event_loop = EventLoop::new().unwrap();
+    let mut app = App::new(&event_loop).await;
+    event_loop.run_app(&mut app);
 }
