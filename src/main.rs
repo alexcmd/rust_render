@@ -36,8 +36,22 @@ struct State<'window> {
     vertex_buffer: wgpu::Buffer,
 }
 
-impl<'window> State<'window> {
-    async fn new(window: Window) -> Self {
+
+struct App<'window> {
+    window: &'window Window,
+    surface: wgpu::Surface<'window>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    size: winit::dpi::PhysicalSize<u32>,
+    render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
+
+}
+
+impl<'window> App<'window> {
+
+    async fn new(window: &'window Window) -> Self {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -154,6 +168,7 @@ impl<'window> State<'window> {
         );
 
         Self {
+            window,
             surface,
             device,
             queue,
@@ -207,21 +222,8 @@ impl<'window> State<'window> {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-
+        self.window.request_redraw();
         Ok(())
-    }
-}
-
-struct App<'window> {
-    state: State<'window>,
-}
-impl App<'_> {
-    async fn new(event_loop: &EventLoop<()>) -> Self {
-        let window: Window = event_loop.create_window(Window::default_attributes()).unwrap();
-        let state = State::new(window).await;
-        return App {
-            state,
-        };
     }
 }
 
@@ -251,13 +253,21 @@ impl ApplicationHandler for App<'_> {
                 // applications which do not always need to. Applications that redraw continuously
                 // can render here instead.
                 // self.window.as_ref().unwrap().request_redraw();
-                match self.state.render() {
+                match self.render() {
                     Ok(_) => {}
-                    Err(wgpu::SurfaceError::Lost) => self.state.resize(self.state.size),
+                    Err(wgpu::SurfaceError::Lost) => self.resize(self.size),
                     Err(e) => eprintln!("{:?}", e),
                 }
             }
-            _ => (),
+            WindowEvent::Moved(_) => {
+                //self.window.request_redraw()
+            }
+            WindowEvent::Resized(new_size) => {
+                self.resize(new_size);
+                self.window.request_redraw()
+
+            }
+            _ => ( println!("{:?}", event)),
         }
     }
 }
@@ -267,6 +277,7 @@ async fn main() {
     env_logger::init();
 
     let event_loop = EventLoop::new().unwrap();
-    let mut app = App::new(&event_loop).await;
-    event_loop.run_app(&mut app);
+    let window: Window = event_loop.create_window(Window::default_attributes()).unwrap();
+    let mut app = App::new(&window).await;
+    event_loop.run_app(&mut app).expect("TODO: panic message");
 }
